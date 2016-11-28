@@ -1,0 +1,155 @@
+## 
+## Gitlab CI for .Net
+##
+## 作者:黄涛
+## 站点:https://github.com/htve/GitlabCIForDotNet
+
+## 构建的阶段与步骤
+stages:
+  - restore_packages
+  - build
+  - test
+  - deploy_packages
+  - deploy
+
+## 定义变量
+variables:
+  ## MSBbuild 路径 
+  MSBUILD_PATH: "C:\\Program Files (x86)\\MSBuild\\14.0\\Bin\\msbuild.exe"
+  ## 构建主项目成功后所生成的准部署文件临时存放文件夹
+  DEPLOY_ARTIFACTS_PATH: "Deploy\\"
+  ## 构建单元测试项目成功后所生成的准部署文件临时存放文件夹
+  TEST_ARTIFACTS_PATH: "Test\\"
+  ## 进行单元测试的DLL文件
+  TEST_ARTIFACTS_DLL_PATH: "\\Test\\bin\\MyCompanyName.AbpZeroTemplate.Tests.dll"
+  ## 测试框架路径
+  UNIT_RUNNER_PATH: "C:\\Multi-Runner\\xUnitRunner\\xunit.console.exe"
+  ## 主项目sln文件路径
+  MASTER_PROJECT_PATH: "src\\MyCompanyName.AbpZeroTemplate.sln"
+  ## 测试项目csproj路径
+  TEST_PROJECT_PATH: "src\\Tests\\MyCompanyName.AbpZeroTemplate.Tests\\MyCompanyName.AbpZeroTemplate.Tests.csproj"
+  ## NuGet路径
+  NUGET_PATH: "C:\\Multi-Runner\\NuGet\\nuget.exe"
+  ## 7-Zip路径
+  7_ZIP_PATH: "C:\\Program Files\\7-Zip\\7z.exe"
+  ## 给远程服务器发送文件的脚本路径
+  SENDFILE_PATH: "C:\\Multi-Runner\\script\\Send-File.ps1"
+  ## 远程服务器登录名,如果目标服务器系统是2012及以上,则必须是"a\用户名"格式
+  REMOTE_USERNAME: "a\\Administrator"
+  ## 远程服务器密码
+  REMOTE_PASSWORD: "5!@~g^m@KBCn,5,L"
+  ## 用于存放发布包的路径
+  REMOTE_PACKAGES_PATH: "C:\\Packages"
+  
+
+## 开始还原NuGet程序包
+Restore NuGet Packages:
+  stage: restore_packages
+  script:
+  - ."$NUGET_PATH" restore "$MASTER_PROJECT_PATH"
+
+## 构建任务模板
+.job_build_template: &job_build_definition
+  stage: build
+  script:
+  - ."$MSBUILD_PATH" "$BUILD_PATH" /ToolsVersion:14.0 /p:RunCodeAnalysis=false /consoleloggerparameters:ErrorsOnly /p:Configuration=Release /nologo /verbosity:quiet /maxcpucount /p:OutDir=$ARTIFACTS_PATH"\bin\" /p:WebProjectOutputDir=$ARTIFACTS_PATH
+  dependencies:
+  - Restore NuGet Packages
+  only:
+  - master
+  - dev
+
+##构建主项目
+Build Master Project:
+  <<: *job_build_definition
+  variables:
+    GIT_STRATEGY: none
+    BUILD_PATH: $MASTER_PROJECT_PATH
+    ARTIFACTS_PATH: $CI_PROJECT_DIR"\\"$DEPLOY_ARTIFACTS_PATH
+
+## 构建测试项目
+Build Test Project:
+  <<: *job_build_definition
+  variables:
+    GIT_STRATEGY: none
+    BUILD_PATH: $TEST_PROJECT_PATH
+    ARTIFACTS_PATH: $CI_PROJECT_DIR"\\"$TEST_ARTIFACTS_PATH
+
+## 测试模板
+.job_test_template: &job_test_definition
+  variables:
+    GIT_STRATEGY: none
+  dependencies:
+  - Build Master Project
+  - Build Test Project
+
+## 测试项目
+Test:
+  <<: *job_test_definition
+  stage: test
+  script:
+  - ."$UNIT_RUNNER_PATH" "$CI_PROJECT_DIR$TEST_ARTIFACTS_DLL_PATH"
+  only:
+  - master
+  - dev
+
+## 上传附件并保留1星期
+Upload Artifacts: 
+  stage: deploy_packages
+  variables:
+    GIT_STRATEGY: none
+  script: 
+  - cd .\Deploy\
+  - ."$7_ZIP_PATH" a -t7z -mx=1 "..\$CI_BUILD_REF.7z"
+  artifacts: 
+    name: "$CI_PROJECT_NAME"
+    expire_in: 1 week
+    paths:
+    - "$CI_BUILD_REF.7z"
+  dependencies:
+  - Test
+  only:
+  - master
+
+## 上传服务器模板
+.job_upload_template: &job_upload_definition
+  stage: deploy_packages
+  variables:
+    GIT_STRATEGY: none
+  script: 
+  - $JOB_NAME= -Split $CI_BUILD_NAME
+  - ."$SENDFILE_PATH" "$CI_BUILD_REF.7z" "$REMOTE_PACKAGES_PATH\$CI_PROJECT_NAME\$CI_BUILD_REF.7z" $JOB_NAME[1] "$REMOTE_USERNAME" "$REMOTE_PASSWORD"
+  dependencies:
+  - Test
+  only: 
+  - master
+
+## 上传到192.168.3.20
+Upload 192.168.3.20: *job_upload_definition
+
+## 部署模板
+.job_deploy_template: &job_deploy_definition
+  stage: deploy
+  variables: 
+    GIT_STRATEGY: none
+  script: 
+  - $JOB_NAME= -Split $CI_BUILD_NAME
+  - $defaultCredential = New-Object Management.Automation.PSCredential $REMOTE_USERNAME, (ConvertTo-SecureString $REMOTE_PASSWORD -AsPlainText -Force) -ErrorAction Stop
+  - Enter-PSSession -ComputerName $JOB_NAME[1] -Credential $defaultCredential -ErrorAction Stop
+  - Stop-Website $JOB_NAME[2] -ErrorAction Stop
+  - $IIS_Path="IIS:\Sites\"+$JOB_NAME[2]
+  - $WEB_PATH = Get-WebFilePath $IIS_Path
+  - $WEB_PATH = "-o"+$WEB_PATH
+  - ."$7_ZIP_PATH" x $REMOTE_PACKAGES_PATH\$CI_PROJECT_NAME\$CI_BUILD_REF.7z $WEB_PATH -y
+  - Start-Website $JOB_NAME[2] -ErrorAction Stop
+  - exit
+
+## 部署192.168.3.20中的site站点
+Deploy 192.168.3.20 site: 
+  <<: *job_deploy_definition
+  environment:
+    name: 192.168.3.20
+  only: 
+  - master
+  #如果想手动部署,请取消注释以下内容
+  #when: manual

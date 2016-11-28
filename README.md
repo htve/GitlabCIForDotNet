@@ -5,6 +5,12 @@ Gitlab CI For .Net Web的CI脚本 . 原则上适用于任何.Net开发 , 但可�
   前一段时间空闲 , 觉得Gitlab+Jenkins的CI太麻烦了 , 主要是因为要使用两种软件 , 太繁琐了. 所以萌生了使用Gitlab Runner的想法. 经过几天的不懈努力 , 加之各种Google , 翻看各种文档 , 终于弄出了一个集自动构建 , 自动测试 , 自动上传 , 自动发布 , 且支持回滚的CI脚本 . 脚本经过本人的测试 , 暂时没有发现大的Bug , 特分享出来 . 如果你在使用过程中发现了Bug , 请及时联系我 !
   By: 黄涛<htve$outlook.com>
 
+##前期准备
+1. 首先需要下载Gitlab CI  
+   [https://gitlab-ci-multi-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-ci-multi-runner-windows-amd64.exe](https://gitlab-ci-multi-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-ci-multi-runner-windows-amd64.exe)
+2. 将项目中的Multi-Runner下载到`c:\`
+2. 将Gitlab CI 改名为 **gitlab-ci-multi-runner.exe** 并复制到 `C:\Multi-Runner`
+
 ##Windows Runner 安装
 1. 将Multi-Runner.7z 解压缩到C:\Multi-Runner
 2. 以管理员身份打开Powershell,执行以下命令
