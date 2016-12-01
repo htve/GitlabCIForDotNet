@@ -41,3 +41,7 @@ Gitlab CI For .Net Web的CI脚本 . 原则上适用于任何.Net开发 , 但可�
     **gitlab-ci-multi-runner install**  
     **gitlab-ci-multi-runner start**
 5. 将项目中的.gitlab-ci.yml根据自身情况修改后添加到gitlab的.gitlab-ci.yml中
+
+##后期配置
+1. 在**项目管理**->**CI/CD设置**中,修改**测试覆盖率分析**正则表达式为 `block0 = \[\["Total",(.*?),`
+2. 在**README.md**中引入**构建徽章**与**覆盖率徽章**
