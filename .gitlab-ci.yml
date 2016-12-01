@@ -14,33 +14,30 @@ stages:
 
 ## 定义变量
 variables:
-  ## MSBbuild 路径 
-  MSBUILD_PATH: "C:\\Program Files (x86)\\MSBuild\\14.0\\Bin\\msbuild.exe"
-  ## 构建主项目成功后所生成的准部署文件临时存放文件夹
-  DEPLOY_ARTIFACTS_PATH: "Deploy\\"
-  ## 构建单元测试项目成功后所生成的准部署文件临时存放文件夹
-  TEST_ARTIFACTS_PATH: "Test\\"
-  ## 进行单元测试的DLL文件
-  TEST_ARTIFACTS_DLL_PATH: "\\Test\\bin\\MyCompanyName.AbpZeroTemplate.Tests.dll"
-  ## 测试框架路径
-  UNIT_RUNNER_PATH: "C:\\Multi-Runner\\xUnitRunner\\xunit.console.exe"
-  ## 主项目sln文件路径
-  MASTER_PROJECT_PATH: "src\\MyCompanyName.AbpZeroTemplate.sln"
-  ## 测试项目csproj路径
-  TEST_PROJECT_PATH: "src\\Tests\\MyCompanyName.AbpZeroTemplate.Tests\\MyCompanyName.AbpZeroTemplate.Tests.csproj"
   ## NuGet路径
   NUGET_PATH: "C:\\Multi-Runner\\NuGet\\nuget.exe"
+  ## MSBbuild 路径 
+  MSBUILD_PATH: "C:\\Program Files (x86)\\MSBuild\\14.0\\Bin\\msbuild.exe"
+  ## dotCover路径
+  DOTCOVER_PATH: "C:\\Multi-Runner\\dotCover\\dotCover.exe"
+  ## 测试框架路径
+  UNIT_RUNNER_PATH: "C:\\Multi-Runner\\xUnitRunner\\xunit.console.exe"
   ## 7-Zip路径
   7_ZIP_PATH: "C:\\Program Files\\7-Zip\\7z.exe"
   ## 给远程服务器发送文件的脚本路径
   SENDFILE_PATH: "C:\\Multi-Runner\\script\\Send-File.ps1"
+  ## 覆盖率过滤器
+  COVER_FILTERS: "-:Abp*"
+  ## 主项目sln文件路径
+  MASTER_PROJECT_PATH: "src\\MyCompanyName.AbpZeroTemplate.sln"
+  ## 进行单元测试及覆盖率的文件,多个文件用逗号(,)隔开,支持PowerShell模糊语法
+  TEST_ARTIFACTS_DLL_PATHS: "src\\Tests\\**\\bin\\**\\*.Tests.dll"
   ## 远程服务器登录名,如果目标服务器系统是2012及以上,则必须是"a\用户名"格式
   REMOTE_USERNAME: "a\\Administrator"
   ## 远程服务器密码
   REMOTE_PASSWORD: "5!@~g^m@KBCn,5,L"
   ## 用于存放发布包的路径
   REMOTE_PACKAGES_PATH: "C:\\Packages"
-  
 
 ## 开始还原NuGet程序包
 Restore NuGet Packages:
@@ -50,48 +47,55 @@ Restore NuGet Packages:
 
 ## 构建任务模板
 .job_build_template: &job_build_definition
-  stage: build
   script:
-  - ."$MSBUILD_PATH" "$BUILD_PATH" /ToolsVersion:14.0 /p:RunCodeAnalysis=false /consoleloggerparameters:ErrorsOnly /p:Configuration=Release /nologo /verbosity:quiet /maxcpucount /p:OutDir=$ARTIFACTS_PATH"\bin\" /p:WebProjectOutputDir=$ARTIFACTS_PATH
+  - ."$MSBUILD_PATH" "$BUILD_PATH" /ToolsVersion:14.0 /p:RunCodeAnalysis=false /consoleloggerparameters:ErrorsOnly /p:Configuration=Release /nologo /verbosity:quiet /maxcpucount $OUT_PATH $WEB_OUT_PATH
+
+    
+## 构建项目
+Build Project:
+  <<: *job_build_definition
+  stage: build
+  variables:
+    GIT_STRATEGY: none
+    BUILD_PATH: $MASTER_PROJECT_PATH
+    OUT_PATH: ""
+    WEB_OUT_PATH: ""
   dependencies:
   - Restore NuGet Packages
   only:
   - master
   - dev
 
-##构建主项目
-Build Master Project:
-  <<: *job_build_definition
-  variables:
-    GIT_STRATEGY: none
-    BUILD_PATH: $MASTER_PROJECT_PATH
-    ARTIFACTS_PATH: $CI_PROJECT_DIR"\\"$DEPLOY_ARTIFACTS_PATH
-
-## 构建测试项目
-Build Test Project:
-  <<: *job_build_definition
-  variables:
-    GIT_STRATEGY: none
-    BUILD_PATH: $TEST_PROJECT_PATH
-    ARTIFACTS_PATH: $CI_PROJECT_DIR"\\"$TEST_ARTIFACTS_PATH
-
-## 测试模板
-.job_test_template: &job_test_definition
+## 测试项目
+Test:
+  stage: test
+  script:
+  - $testFiles = @()
+  - $paths=$TEST_ARTIFACTS_DLL_PATHS -Split ","
+  - foreach ($p in $paths) {$testFiles+=Get-Item "$p"}
+  - ."$DOTCOVER_PATH" analyse /TargetExecutable="$UNIT_RUNNER_PATH" /TargetArguments="$testFiles" /Output="Coverage.html" /ReportType="HTML" /Filters="$COVER_FILTERS"
+  - cat Coverage.html
   variables:
     GIT_STRATEGY: none
   dependencies:
-  - Build Master Project
-  - Build Test Project
-
-## 测试项目
-Test:
-  <<: *job_test_definition
-  stage: test
-  script:
-  - ."$UNIT_RUNNER_PATH" "$CI_PROJECT_DIR$TEST_ARTIFACTS_DLL_PATH"
+  - Build Project
   only:
   - master
   - dev
+
+## 构建部署包
+Build Deploy Packages:
+  <<: *job_build_definition
+  stage: deploy_packages
+  variables:
+    GIT_STRATEGY: none
+    BUILD_PATH: $MASTER_PROJECT_PATH
+    OUT_PATH: "/p:OutDir=\"$CI_PROJECT_DIR/Deploy/bin\""
+    WEB_OUT_PATH: "/p:WebProjectOutputDir=\"$CI_PROJECT_DIR/Deploy\""
+  dependencies:
+  - Test
+  only:
+  - master
 
 ## 上传附件并保留1星期
 Upload Artifacts: 
@@ -106,6 +110,8 @@ Upload Artifacts:
     expire_in: 1 week
     paths:
     - "$CI_BUILD_REF.7z"
+    - "Coverage.html"
+    - "Coverage/"
   dependencies:
   - Test
   only:

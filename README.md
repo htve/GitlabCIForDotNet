@@ -6,10 +6,8 @@ Gitlab CI For .Net Web的CI脚本 . 原则上适用于任何.Net开发 , 但可�
   By: 黄涛<htve$outlook.com>
 
 ##前期准备
-1. 首先需要下载Gitlab CI  
-   [https://gitlab-ci-multi-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-ci-multi-runner-windows-amd64.exe](https://gitlab-ci-multi-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-ci-multi-runner-windows-amd64.exe)
-2. 将项目中的Multi-Runner下载到`c:\`
-2. 将Gitlab CI 改名为 **gitlab-ci-multi-runner.exe** 并复制到 `C:\Multi-Runner`
+1. 首先需要下载[Gitlab CI Runner](https://gitlab-ci-multi-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-ci-multi-runner-windows-amd64.exe)到`C:\Multi-Runner` , 并将其改名为**gitlab-ci-multi-runner.exe**
+2. 下载[JetBrains dotCover Command line tools](https://www.jetbrains.com/dotcover/download/#section=commandline "JetBrains dotCover Command line tools")并解压到`C:\Multi-Runner\dotCover`
 
 ##Windows Runner 安装
 1. 将Multi-Runner.7z 解压缩到C:\Multi-Runner
