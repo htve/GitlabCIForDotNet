@@ -6,62 +6,74 @@
 
 ## 构建的阶段与步骤
 stages:
-  - restore_packages
   - build
   - test
   - deploy_packages
+  - upload_packages
   - deploy
 
 ## 定义变量
 variables:
   ## NuGet路径
-  NUGET_PATH: "C:\\Multi-Runner\\NuGet\\nuget.exe"
+  NUGET_PATH: "C:\\Multi-Runner1\\NuGet\\nuget.exe"
   ## MSBbuild 路径 
   MSBUILD_PATH: "C:\\Program Files (x86)\\MSBuild\\14.0\\Bin\\msbuild.exe"
   ## dotCover路径
-  DOTCOVER_PATH: "C:\\Multi-Runner\\dotCover\\dotCover.exe"
+  DOTCOVER_PATH: "C:\\Multi-Runner1\\dotCover\\dotCover.exe"
   ## 测试框架路径
-  UNIT_RUNNER_PATH: "C:\\Multi-Runner\\xUnitRunner\\xunit.console.exe"
+  UNIT_RUNNER_PATH: "C:\\Multi-Runner1\\xUnitRunner\\xunit.console.exe"
   ## 7-Zip路径
   7_ZIP_PATH: "C:\\Program Files\\7-Zip\\7z.exe"
+  ## 部服务器配置的脚本路径
+  SERVER_PATH: "C:\\Multi-Runner1\\script\\Servers.ps1"
   ## 给远程服务器发送文件的脚本路径
-  SENDFILE_PATH: "C:\\Multi-Runner\\script\\Send-File.ps1"
+  SENDFILE_PATH: "C:\\Multi-Runner1\\script\\Send-File.ps1"
+  ## 部署文件路径
+  DEPLOYFILE_PATH: "C:\\Multi-Runner1\\script\\Deploy.ps1"
   ## 覆盖率过滤器
   COVER_FILTERS: "-:Abp*"
   ## 主项目sln文件路径
   MASTER_PROJECT_PATH: "src\\MyCompanyName.AbpZeroTemplate.sln"
   ## 进行单元测试及覆盖率的文件,多个文件用逗号(,)隔开,支持PowerShell模糊语法
   TEST_ARTIFACTS_DLL_PATHS: "src\\Tests\\**\\bin\\**\\*.Tests.dll"
-  ## 远程服务器登录名,如果目标服务器系统是2012及以上,则必须是"a\用户名"格式
-  REMOTE_USERNAME: "a\\Administrator"
-  ## 远程服务器密码
-  REMOTE_PASSWORD: "5!@~g^m@KBCn,5,L"
-  ## 用于存放发布包的路径
-  REMOTE_PACKAGES_PATH: "C:\\Packages"
+  ## 定义全局Git拉取行为
+  #GIT_STRATEGY: none
 
-## 开始还原NuGet程序包
-Restore NuGet Packages:
-  stage: restore_packages
-  script:
+## 缓存用于测试的构建
+.multi_runner_test_cache: 
+  cache: &test_cache
+    key: $CI_BUILD_REF/test
+    paths: 
+    - "src/Tests/MyCompanyName.AbpZeroTemplate.Tests/bin"
+
+## 缓存部署包
+.multi_runner_deploy_packages_cache: 
+  cache: &deploy_packages_cache
+    key: $CI_BUILD_REF/deploy_packages
+    paths: 
+    - "$CI_BUILD_REF.7z"
+
+## 还原NuGet程序包
+.job_restore_nuGet_packages: &restore_nuGet_packages
+  before_script:
   - ."$NUGET_PATH" restore "$MASTER_PROJECT_PATH"
 
 ## 构建任务模板
 .job_build_template: &job_build_definition
+  <<: *restore_nuGet_packages
   script:
   - ."$MSBUILD_PATH" "$BUILD_PATH" /ToolsVersion:14.0 /p:RunCodeAnalysis=false /consoleloggerparameters:ErrorsOnly /p:Configuration=Release /nologo /verbosity:quiet /maxcpucount $OUT_PATH $WEB_OUT_PATH
-
     
 ## 构建项目
 Build Project:
   <<: *job_build_definition
   stage: build
   variables:
-    GIT_STRATEGY: none
+    GIT_STRATEGY: fetch
     BUILD_PATH: $MASTER_PROJECT_PATH
     OUT_PATH: ""
     WEB_OUT_PATH: ""
-  dependencies:
-  - Restore NuGet Packages
+  cache: *test_cache
   only:
   - master
   - dev
@@ -75,10 +87,7 @@ Test:
   - foreach ($p in $paths) {$testFiles+=Get-Item "$p"}
   - ."$DOTCOVER_PATH" analyse /TargetExecutable="$UNIT_RUNNER_PATH" /TargetArguments="$testFiles" /Output="Coverage.html" /ReportType="HTML" /Filters="$COVER_FILTERS"
   - cat Coverage.html
-  variables:
-    GIT_STRATEGY: none
-  dependencies:
-  - Build Project
+  cache: *test_cache
   only:
   - master
   - dev
@@ -88,45 +97,39 @@ Build Deploy Packages:
   <<: *job_build_definition
   stage: deploy_packages
   variables:
-    GIT_STRATEGY: none
+    GIT_STRATEGY: fetch
     BUILD_PATH: $MASTER_PROJECT_PATH
     OUT_PATH: "/p:OutDir=\"$CI_PROJECT_DIR/Deploy/bin\""
     WEB_OUT_PATH: "/p:WebProjectOutputDir=\"$CI_PROJECT_DIR/Deploy\""
-  dependencies:
-  - Test
+  after_script: 
+  - cd .\Deploy\
+  - ."$7_ZIP_PATH" a -t7z -mx=1 "..\$CI_BUILD_REF.7z"
+  cache: *deploy_packages_cache
   only:
   - master
 
 ## 上传附件并保留1星期
 Upload Artifacts: 
-  stage: deploy_packages
-  variables:
-    GIT_STRATEGY: none
+  stage: upload_packages
+  cache: *deploy_packages_cache
   script: 
-  - cd .\Deploy\
-  - ."$7_ZIP_PATH" a -t7z -mx=1 "..\$CI_BUILD_REF.7z"
+  - echo "开始上传"
   artifacts: 
     name: "$CI_PROJECT_NAME"
     expire_in: 1 week
     paths:
     - "$CI_BUILD_REF.7z"
-    - "Coverage.html"
-    - "Coverage/"
-  dependencies:
-  - Test
   only:
   - master
 
 ## 上传服务器模板
 .job_upload_template: &job_upload_definition
-  stage: deploy_packages
-  variables:
-    GIT_STRATEGY: none
+  stage: upload_packages
   script: 
   - $JOB_NAME= -Split $CI_BUILD_NAME
-  - ."$SENDFILE_PATH" "$CI_BUILD_REF.7z" "$REMOTE_PACKAGES_PATH\$CI_PROJECT_NAME\$CI_BUILD_REF.7z" $JOB_NAME[1] "$REMOTE_USERNAME" "$REMOTE_PASSWORD"
-  dependencies:
-  - Test
+  - $ip=$JOB_NAME[1]
+  - ."$SENDFILE_PATH" "$CI_BUILD_REF.7z" "$ip"
+  cache: *deploy_packages_cache  
   only: 
   - master
 
@@ -136,19 +139,11 @@ Upload 192.168.3.20: *job_upload_definition
 ## 部署模板
 .job_deploy_template: &job_deploy_definition
   stage: deploy
-  variables: 
-    GIT_STRATEGY: none
   script: 
   - $JOB_NAME= -Split $CI_BUILD_NAME
-  - $defaultCredential = New-Object Management.Automation.PSCredential $REMOTE_USERNAME, (ConvertTo-SecureString $REMOTE_PASSWORD -AsPlainText -Force) -ErrorAction Stop
-  - Enter-PSSession -ComputerName $JOB_NAME[1] -Credential $defaultCredential -ErrorAction Stop
-  - Stop-Website $JOB_NAME[2] -ErrorAction Stop
-  - $IIS_Path="IIS:\Sites\"+$JOB_NAME[2]
-  - $WEB_PATH = Get-WebFilePath $IIS_Path
-  - $WEB_PATH = "-o"+$WEB_PATH
-  - ."$7_ZIP_PATH" x $REMOTE_PACKAGES_PATH\$CI_PROJECT_NAME\$CI_BUILD_REF.7z $WEB_PATH -y
-  - Start-Website $JOB_NAME[2] -ErrorAction Stop
-  - exit
+  - $ip=$JOB_NAME[1]
+  - $site=$JOB_NAME[2]
+  - ."$DEPLOYFILE_PATH" "$ip" "$site"
 
 ## 部署192.168.3.20中的site站点
 Deploy 192.168.3.20 site: 
