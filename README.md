@@ -9,12 +9,13 @@ Gitlab CI For .Net Web的CI脚本 . 原则上适用于任何.Net开发 , 但可�
 1. 首先需要下载[Gitlab CI Runner](https://gitlab-ci-multi-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-ci-multi-runner-windows-amd64.exe)到`C:\Multi-Runner` , 并将其改名为**gitlab-ci-multi-runner.exe**
 2. 下载[JetBrains dotCover Command line tools](https://www.jetbrains.com/dotcover/download/#section=commandline "JetBrains dotCover Command line tools")并解压到`C:\Multi-Runner\dotCover`  
 3. 配置.gitlab-ci.yml中的变量 
-3. 配置部署服务器信息 , 参见 Script\Servers.ps1 
-4. 如果部署多个Runner , 必须部署在同一个服务器上 , 并且取消注释 第40行(GIT_STRATEGY: none) 同时注释第47和54行 . 注册多个Runner命令 :  
+4. 配置部署服务器信息 , 参见 CI-Scripts.psm1 
+5. 同一个服务器注册多个Runner命令 :  
 `sc create 服务名称 binPath= "Runner路径 run --working-directory 多个Runner的工作目录必须相同 --config Runner配置文件 --service gitlab-runner --syslog"`  
   Demo :  
 `sc create Gitlab_Runner2 binPath= "C:\Multi-Runner2\gitlab-ci-multi-runner.exe run --working-directory C:\Gitlab_Working --config C:\Multi-Runner2\config.toml --service gitlab-runner --syslog"`  
-
+6. CI服务器与Web服务器必须安装7z压缩软件
+7. CI服务器与Web服务器需在PowerShell中执行**Enable-PsRemoting**
 ##Windows Runner 安装
 1. 将Multi-Runner.7z 解压缩到C:\Multi-Runner
 2. 以管理员身份打开Powershell,执行以下命令
@@ -49,5 +50,5 @@ Gitlab CI For .Net Web的CI脚本 . 原则上适用于任何.Net开发 , 但可�
 5. 将项目中的.gitlab-ci.yml根据自身情况修改后添加到gitlab的.gitlab-ci.yml中
 
 ##后期配置
-1. 在**项目管理**->**CI/CD设置**中,修改**测试覆盖率分析**正则表达式为 `block0 = \[\["Total",(.*?),`
+1. 在**项目管理**->**CI/CD设置**中,修改**测试覆盖率分析**正则表达式为 `"CoveragePercent": (\d+),`
 2. 在**README.md**中引入**构建徽章**与**覆盖率徽章**

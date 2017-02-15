@@ -8,133 +8,81 @@
 stages:
   - build
   - test
-  - deploy_packages
-  - upload_packages
+  - build_unpack
+  - upload_file
   - deploy
 
 ## 定义变量
-variables:
-  ## NuGet路径
-  NUGET_PATH: "C:\\Multi-Runner1\\NuGet\\nuget.exe"
-  ## MSBbuild 路径 
-  MSBUILD_PATH: "C:\\Program Files (x86)\\MSBuild\\14.0\\Bin\\msbuild.exe"
-  ## dotCover路径
-  DOTCOVER_PATH: "C:\\Multi-Runner1\\dotCover\\dotCover.exe"
-  ## 测试框架路径
-  UNIT_RUNNER_PATH: "C:\\Multi-Runner1\\xUnitRunner\\xunit.console.exe"
-  ## 7-Zip路径
-  7_ZIP_PATH: "C:\\Program Files\\7-Zip\\7z.exe"
-  ## 部服务器配置的脚本路径
-  SERVER_PATH: "C:\\Multi-Runner1\\script\\Servers.ps1"
-  ## 给远程服务器发送文件的脚本路径
-  SENDFILE_PATH: "C:\\Multi-Runner1\\script\\Send-File.ps1"
-  ## 部署文件路径
-  DEPLOYFILE_PATH: "C:\\Multi-Runner1\\script\\Deploy.ps1"
+before_script:
+  ##-----------------------------可变更参数----------------------------------
+  ## 文件目录
+  - $global:FilePath="C:\\Multi-Runner1"
+  ## 进行单元测试及覆盖率的项目名称,多个文件用逗号(,)隔开,支持*通配符
+  - $global:TestProjectNames="Ninetowns.NewsCenter.Tests"
   ## 覆盖率过滤器
-  COVER_FILTERS: "-:Abp*"
-  ## 主项目sln文件路径
-  MASTER_PROJECT_PATH: "src\\MyCompanyName.AbpZeroTemplate.sln"
-  ## 进行单元测试及覆盖率的文件,多个文件用逗号(,)隔开,支持PowerShell模糊语法
-  TEST_ARTIFACTS_DLL_PATHS: "src\\Tests\\**\\bin\\**\\*.Tests.dll"
-  ## 定义全局Git拉取行为
-  #GIT_STRATEGY: none
+  - $global:CoverFilters="-:Abp*"
+  ##-------------------------------------------------------------------------
+  - $global:CiProjectPath=$CI_PROJECT_DIR
+  - $global:CommitId=$CI_BUILD_REF
+  - $global:ProjectName=$CI_PROJECT_NAME
+  - Import-Module -Name "$global:FilePath\\CI-Scripts.psm1"
 
-## 缓存用于测试的构建
-.multi_runner_test_cache: 
-  cache: &test_cache
-    key: $CI_BUILD_REF/test
-    paths: 
-    - "src/Tests/MyCompanyName.AbpZeroTemplate.Tests/bin"
 
-## 缓存部署包
-.multi_runner_deploy_packages_cache: 
-  cache: &deploy_packages_cache
-    key: $CI_BUILD_REF/deploy_packages
-    paths: 
-    - "$CI_BUILD_REF.7z"
-
-## 还原NuGet程序包
-.job_restore_nuGet_packages: &restore_nuGet_packages
-  before_script:
-  - ."$NUGET_PATH" restore "$MASTER_PROJECT_PATH"
-
-## 构建任务模板
-.job_build_template: &job_build_definition
-  <<: *restore_nuGet_packages
-  script:
-  - ."$MSBUILD_PATH" "$BUILD_PATH" /ToolsVersion:14.0 /p:RunCodeAnalysis=false /consoleloggerparameters:ErrorsOnly /p:Configuration=Release /nologo /verbosity:quiet /maxcpucount $OUT_PATH $WEB_OUT_PATH
-    
-## 构建项目
-Build Project:
-  <<: *job_build_definition
+## 构建主项目
+Build Master Project:
   stage: build
-  variables:
-    GIT_STRATEGY: fetch
-    BUILD_PATH: $MASTER_PROJECT_PATH
-    OUT_PATH: ""
-    WEB_OUT_PATH: ""
-  cache: *test_cache
-  only:
-  - master
-  - dev
+  script:
+  - InvokeMsBuildSln
 
+## 构建测试项目    
+Build Test Project:
+  stage: build
+  script:
+  - InvokeMsBuildCsporj -TestProjectsName $global:TestProjectNames
+  artifacts: 
+    name: "$CI_PROJECT_NAME/Test"
+    expire_in: 1 day
+    paths:
+    - "BuildTests"
+    
 ## 测试项目
 Test:
   stage: test
+  variables:
+    OUT_PATH: ""
+    WEB_OUT_PATH: ""
   script:
-  - $testFiles = @()
-  - $paths=$TEST_ARTIFACTS_DLL_PATHS -Split ","
-  - foreach ($p in $paths) {$testFiles+=Get-Item "$p"}
-  - ."$DOTCOVER_PATH" analyse /TargetExecutable="$UNIT_RUNNER_PATH" /TargetArguments="$testFiles" /Output="Coverage.html" /ReportType="HTML" /Filters="$COVER_FILTERS"
-  - cat Coverage.html
-  cache: *test_cache
-  only:
-  - master
-  - dev
+  - TestDlls $global:TestProjectNames
+  dependencies:
+  - Build Test Project
 
 ## 构建部署包
-Build Deploy Packages:
-  <<: *job_build_definition
-  stage: deploy_packages
-  variables:
-    GIT_STRATEGY: fetch
-    BUILD_PATH: $MASTER_PROJECT_PATH
-    OUT_PATH: "/p:OutDir=\"$CI_PROJECT_DIR/Deploy/bin\""
-    WEB_OUT_PATH: "/p:WebProjectOutputDir=\"$CI_PROJECT_DIR/Deploy\""
-  after_script: 
-  - cd .\Deploy\
-  - ."$7_ZIP_PATH" a -t7z -mx=1 "..\$CI_BUILD_REF.7z"
-  cache: *deploy_packages_cache
-  only:
-  - master
-
-## 上传附件并保留1星期
-Upload Artifacts: 
-  stage: upload_packages
-  cache: *deploy_packages_cache
+Build Unpack:
+  stage: build_unpack
   script: 
-  - echo "开始上传"
+  - BuildUnpack
   artifacts: 
     name: "$CI_PROJECT_NAME"
     expire_in: 1 week
     paths:
     - "$CI_BUILD_REF.7z"
   only:
-  - master
+  - production
 
 ## 上传服务器模板
 .job_upload_template: &job_upload_definition
-  stage: upload_packages
+  stage: upload_file
   script: 
   - $JOB_NAME= -Split $CI_BUILD_NAME
   - $ip=$JOB_NAME[1]
-  - ."$SENDFILE_PATH" "$CI_BUILD_REF.7z" "$ip"
-  cache: *deploy_packages_cache  
+  - UploadFile "$ip"
   only: 
-  - master
+  - production
+  dependencies:
+  - Build Unpack
 
-## 上传到192.168.3.20
-Upload 192.168.3.20: *job_upload_definition
+## 上传到192.168.3.80
+Upload 192.168.3.80: *job_upload_definition
 
 ## 部署模板
 .job_deploy_template: &job_deploy_definition
@@ -143,14 +91,14 @@ Upload 192.168.3.20: *job_upload_definition
   - $JOB_NAME= -Split $CI_BUILD_NAME
   - $ip=$JOB_NAME[1]
   - $site=$JOB_NAME[2]
-  - ."$DEPLOYFILE_PATH" "$ip" "$site"
+  - Deploy "$ip" "$site"
 
-## 部署192.168.3.20中的site站点
-Deploy 192.168.3.20 site: 
+## 部署192.168.3.80中的Site站点
+Deploy 192.168.3.80 Site: 
   <<: *job_deploy_definition
   environment:
-    name: 192.168.3.20
+    name: 192.168.3.80
   only: 
-  - master
+  - production
   #如果想手动部署,请取消注释以下内容
   #when: manual
