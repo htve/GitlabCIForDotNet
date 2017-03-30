@@ -53,6 +53,7 @@ Test:
     WEB_OUT_PATH: ""
   script:
   - TestDlls $global:TestProjectNames
+  coverage: '/"CoveragePercent": (\d+),/'
   dependencies:
   - Build Test Project
 
