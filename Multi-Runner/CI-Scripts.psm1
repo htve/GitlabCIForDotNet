@@ -169,7 +169,12 @@ function InvokeMsBuild(
 
     Write-Host "Start Build ...`n"
     Write-Host $build $projectPath $toolsVersion /p:RunCodeAnalysis=false /consoleloggerparameters:ErrorsOnly /p:Configuration=$configuration /nologo /verbosity:quiet /maxcpucount $OutDir $WebProjectOutputDir `n
-    .$build $projectPath $toolsVersion /p:RunCodeAnalysis=false /consoleloggerparameters:ErrorsOnly /p:Configuration=$configuration /nologo /verbosity:quiet /maxcpucount $OutDir $WebProjectOutputDir
+    $result = ."$build" $projectPath $toolsVersion /p:RunCodeAnalysis=false /consoleloggerparameters:ErrorsOnly /p:Configuration=$configuration /nologo /verbosity:quiet /maxcpucount $OutDir $WebProjectOutputDir
+	if($result.length -gt 0)
+	{ 
+		Write-Output $result
+		exit 1
+	}
     Write-Host "Build To Completed`n"
     return
 }
