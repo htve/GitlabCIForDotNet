@@ -248,7 +248,9 @@ function TestDlls (
         [string]::Join("`n", $testFiles)
 
         Write-Host "Start Tests ...`n"
-        ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$global:FilePath\\xUnitRunner\\xunit.console.exe" /TargetArguments="$testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
+        $test = ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$global:FilePath\\xUnitRunner\\xunit.console.exe" /TargetArguments="$testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
+		Write-Output $test
+		if($test[-5].Contains("Analysed application exited with code")){ exit 1 }
         Write-Host "Tests To Completed`n"
 
         $CoveragePercent = (Get-Content Coverage.json -TotalCount 6)[-1]
