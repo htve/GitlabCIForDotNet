@@ -121,21 +121,54 @@ function GetVisualStudioToolsVersion
 	return $vsToolsVersion
 }
 
-function RestoreNugetPackages()
+function RestorePackages()
 {
-    $slnFile = Get-ChildItem -Include *.sln -recurse | Select-Object -First 1
+	$slnFile = Get-ChildItem -Include *.sln -recurse | Select-Object -First 1
     if(!$slnFIle) { throw "Did not find the .sln file"; exit 1}
     Write-Host "Sln Path: $slnFile `n"
-
-    $nugetPath=$global:FilePath+"\NuGet\nuget.exe"
-    if(!(Test-Path $nugetPath -PathType Leaf)) { throw "Path $nugetPath does not exist"; exit 1 }
-
-    Write-Host "Start Restoring Nuget Packages ...`n"
-    Write-Host .$nugetPath restore $slnFile `n
-    $result = .$nugetPath restore $slnFile
-    Write-Host "Restore Nuget Packages To Completed`n"
+	
+	Write-Host "Start Restoring Nuget Packages ...`n"
+	
+	$paketFile = Get-ChildItem -Include "paket.dependencies" -recurse | Select-Object -First 1
+	if($paketFile)
+	{
+		RestorePaketPackages($paketFile.DirectoryName)
+	}
+	else
+	{
+		RestoreNugetPackages($slnFIle)
+	}
+	
+	Write-Host "Restore Nuget Packages To Completed`n"
     return $slnFile
 }
+
+function RestoreNugetPackages(
+	[parameter(Mandatory=$false)]
+    [string]$File
+	)
+{
+    $nugetPath=$global:FilePath+"\NuGet\nuget.exe"
+    if(!(Test-Path $nugetPath -PathType Leaf)) { throw "Path $nugetPath does not exist"; exit 1 }
+    Write-Host .$nugetPath restore $File `n
+    $result = .$nugetPath restore $File
+	return
+}
+
+function RestorePaketPackages(
+	[parameter(Mandatory=$false)]
+    [string]$File
+	)
+{
+	$paketPath=$global:FilePath+"\Paket\paket.bootstrapper.exe"
+	if(!(Test-Path $paketPath -PathType Leaf)) { throw "Path $paketPath does not exist"; exit 1 }
+	
+	.$paketPath -s --self --max-file-age=120
+	cd $File
+	.$paketPath -s --max-file-age=120 --prefer-nuget --run "restore"
+	cd $global:CiProjectPath
+}
+
 
 function InvokeMsBuild(
     [Parameter(Position=0,Mandatory = $true,ValueFromPipeline=$true,HelpMessage="The path to the file to build with MsBuild (e.g. a .sln or .csproj file).")]
@@ -195,7 +228,7 @@ function InvokeMsBuildSln (
 {   
     Try
     {
-        $projectPath = RestoreNugetPackages
+        $projectPath = RestorePackages
         InvokeMsBuild -Path $projectPath -OutDir $OutDir -WebProjectOutputDir $WebProjectOutputDir -Use32BitMsBuild:$Use32BitMsBuild -UseDebug:$UseDebug
     }
     catch  
