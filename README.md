@@ -16,6 +16,7 @@ Gitlab CI For .Net Web的CI脚本 . 原则上适用于任何.Net开发 , 但可�
 `sc create Gitlab_Runner2 binPath= "C:\Multi-Runner2\gitlab-ci-multi-runner.exe run --working-directory C:\Gitlab_Working --config C:\Multi-Runner2\config.toml --service gitlab-runner --syslog"`  
 6. CI服务器与Web服务器必须安装7z压缩软件
 7. CI服务器与Web服务器需在PowerShell中执行**Enable-PsRemoting**
+8. 确认系统中的MSBuild版本,建议安装MSBuild v15.0(vs2017)
 ##Windows Runner 安装
 1. 将Multi-Runner.7z 解压缩到C:\Multi-Runner
 2. 以管理员身份打开Powershell,执行以下命令

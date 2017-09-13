@@ -4,6 +4,8 @@
 ## 作者:黄涛
 ## 站点:https://github.com/htve/GitlabCIForDotNet
 
+$Msbuild15Path = 'C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\MSBuild\15.0\Bin\amd64\msbuild.exe'
+
 function GetServers()
 {
     $servers = @{
@@ -53,6 +55,12 @@ function GetServerSession([string]$IP)
 
 function GetMsBuildPath([switch] $Use32BitMsBuild)
 {
+	## 判断是否存在MSBuild v15
+	if(Test-Path -Path $Msbuild15Path)
+	{
+		return $Msbuild15Path
+	}
+	
     ## 获取MsBuild.exe的最新版本的路径。如果找不到MsBuild.exe，则抛出异常。
 	$registryPathToMsBuildToolsVersions = 'HKLM:\SOFTWARE\Microsoft\MSBuild\ToolsVersions\'
 	if ($Use32BitMsBuild)
@@ -94,6 +102,7 @@ function GetVisualStudioToolsVersion
 {
     ## vs版本列表
     $vsCommandPromptPaths = @(
+		@{Path=$Msbuild15Path;Version="15.0";}
         @{Path=$env:VS140COMNTOOLS + 'VsDevCmd.bat';Version="14.0";}
         @{Path=$env:VS120COMNTOOLS + 'VsDevCmd.bat';Version="12.0";}
         @{Path=$env:VS110COMNTOOLS + 'VsDevCmd.bat';Version="11.0";}
