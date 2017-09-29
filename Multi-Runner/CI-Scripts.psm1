@@ -102,6 +102,7 @@ function GetDotnet()
 {
 	## 获取dotnet
 	$dotnet = get-childitem "C:\Program Files\dotnet\" dotnet.exe -recurse | Select-Object -first 1 | select -expand FullName
+    if(!(Test-Path $dotnet -PathType Leaf)) { throw "Path $dotnet does not exist"; exit 1 }
 	return $dotnet
 }
 
@@ -141,7 +142,7 @@ function RestorePackages(
 	[parameter(Mandatory=$false)]
     [switch] $IsCore)
 {
-	$slnFile = Get-ChildItem -Include *.sln -recurse | Select-Object -First 1
+	$slnFile = Get-ChildItem -Include *.sln -recurse | Select-Object -first 1 | select -expand FullName
     Write-Host "Sln Path: $slnFile `n"
 	if(!$slnFIle) { throw "Did not find the .sln file"; exit 1}
 	
@@ -174,8 +175,10 @@ function RestoreCorePackages(
 	[parameter(Mandatory=$false)]
     [string]$File)
 {
-	$slnFile = GetDotnet()
-	.$slnFile restore $File
+	$slnFile = GetDotnet
+    Write-Host .$slnFile restore $File `n
+	$result = .$slnFile restore $File
+    return
 }
 
 function InvokeMsBuild(
@@ -238,13 +241,22 @@ function InvokeDotnetBuild(
     [switch] $UseDebug
 )
 {
-	$dotnet = GetDotnet()
+	$dotnet = GetDotnet
 	
-	$configuration="Release"
-    if($UseDebug){$configuration="Debug"}
-	
-	$slnFile = RestorePackages -IsCore
-	.$dotnet build $slnFile --output $OutDir --configuration $configuration --framework $Framework --runtime $Runtime --verbosity m
+	$configuration="--configuration:Release"
+    if($UseDebug){$configuration="--configuration:Debug"}
+
+    $output='' 
+    if($OutDir){ $output='--output:$OutDir'}
+
+    $framework='' 
+    if($Framework){ $framework='--framework:$Framework'}
+
+    $runtime=''
+    if($Runtime){ $runtime='--runtime:$Runtime'}
+
+    Write-Host .$dotnet build $configuration $framework $runtime --no-restore --verbosity m $ProjectPath
+	.$dotnet build $configuration $framework $runtime --no-restore --verbosity m $ProjectPath
 }
 
 function InvokeBuildSln (
@@ -255,10 +267,10 @@ function InvokeBuildSln (
     [string]$WebProjectOutputDir,
 
     [parameter(Mandatory=$false)]
-    [switch] $Use32BitMsBuild
+    [switch] $Use32BitMsBuild,
 	
 	[parameter(Mandatory=$false)]
-    [switch] $IsCore),
+    [switch] $IsCore,
 	
 	[parameter(Mandatory=$false)]
     [string]$Framework,
@@ -267,19 +279,20 @@ function InvokeBuildSln (
     [string]$Runtime,
 	
     [parameter(Mandatory=$false)]
-    [switch] $UseDebug,
+    [switch] $UseDebug
     )
 {   
     Try
     {
-		if(IsCore)
+		if($IsCore)
 		{
-			InvokeDotnetBuild -Path $projectPath -Output $OutDir -Framework $Framework -Runtime $Runtime -UseDebug $UseDebug
+            $projectPath = RestorePackages -IsCore
+			InvokeDotnetBuild -Path "$projectPath" -OutDir $OutDir -Framework $Framework -Runtime $Runtime -UseDebug:$UseDebug
 		}
 		else
 		{
 			$projectPath = RestorePackages
-			InvokeMsBuild -Path $projectPath -OutDir $OutDir -WebProjectOutputDir $WebProjectOutputDir -Use32BitMsBuild:$Use32BitMsBuild -UseDebug:$UseDebug
+			InvokeMsBuild -Path "$projectPath" -OutDir $OutDir -WebProjectOutputDir $WebProjectOutputDir -Use32BitMsBuild:$Use32BitMsBuild -UseDebug:$UseDebug
 		}
     }
     catch  
@@ -295,12 +308,10 @@ function InvokeBuildCsporj (
 	
 	[parameter(Mandatory=$false)]
     [switch] $IsCore)
-    )
 {
     Try
     {
-		$projectPath=''
-		if($IsCore)){ $projectPath = RestoreCorePackages } else { $projectPath = RestoreNugetPackages }
+        $projectPath = RestoreCorePackages -IsCore:$IsCore
         
         $testFiles = @()
         foreach ($p in $TestProjectsName -Split ",") {$testFiles+=$p+".csproj"}
@@ -308,7 +319,7 @@ function InvokeBuildCsporj (
 
         foreach ($p in $test_projects) 
         {
-			if($IsCore)){
+			if($IsCore){
 				InvokeDotnetBuild -Path $p
 			}
 			else{
@@ -330,7 +341,6 @@ function Tests(
 	
 	[parameter(Mandatory=$false)]
     [switch] $IsCore)
-)
 {
 	Try
     {
@@ -348,7 +358,7 @@ function Tests(
 		Write-Host "Start Tests ...`n"
 		$test=''
 		if($IsCore){ 
-			$dotnet = GetDotnet()
+			$dotnet = GetDotnet
 			$test = ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$dotnet" /TargetArguments="test $testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
 		}else{
 			$test = ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$global:FilePath\\xUnitRunner\\xunit.console.exe" /TargetArguments="$testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
@@ -370,7 +380,7 @@ function Tests(
 
 function BuildUnpack (
 	[parameter(Mandatory=$false)]
-    [switch] $IsCore)),
+    [switch] $IsCore,
 	
 	[parameter(Mandatory=$false)]
     [string]$Framework,
@@ -384,10 +394,20 @@ function BuildUnpack (
     Try
     {
 		if($IsCore){
-			$dotnet = GetDotnet()
+			$dotnet = GetDotnet
 			$projectPath = RestorePackages -IsCore
-			if(SelfContained) { $parameter=' --self-contained'}
-			.$dotnet publish $projectPath --output $global:CiProjectPath/Deploy --framework $Framework --runtime $Runtime --configuration Release --verbosity m
+            
+            $self_Contained=''
+			if($SelfContained) { $self_Contained=' --self-contained'}
+
+            $framework='' 
+            if($Framework){ $framework='--framework:$Framework'}
+
+            $runtime=''
+            if($Runtime){ $runtime='--runtime:$Runtime'}
+
+			Write-Host .$dotnet publish $projectPath --output:$global:CiProjectPath/Deploy $framework $runtime $self_Contained --configuration:'Release' --no-restore --verbosity m
+            .$dotnet publish $projectPath --output:$global:CiProjectPath/Deploy $framework $runtime $self_Contained --configuration:'Release' --no-restore --verbosity m
 		}
 		else{
 			InvokeBuildSln "$global:CiProjectPath/Deploy/bin" "$global:CiProjectPath/Deploy"
