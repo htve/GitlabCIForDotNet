@@ -32,9 +32,10 @@ before_script:
 Build Master Project:
   stage: build
   script:
-  - InvokeMsBuildSln
-
-## 构建测试项目    
+  - InvokeBuildSln #非core
+  #- InvokeBuildSln -IsCore #core
+  
+## 构建测试项目
 Build Test Project:
   stage: build
   script:
@@ -52,7 +53,8 @@ Test:
     OUT_PATH: ""
     WEB_OUT_PATH: ""
   script:
-  - TestDlls $global:TestProjectNames
+  - Tests $global:TestProjectNames
+  #- Tests $global:TestProjectNames -IsCore #Core 
   coverage: '/"CoveragePercent": (\d+),/'
   dependencies:
   - Build Test Project

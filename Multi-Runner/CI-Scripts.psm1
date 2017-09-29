@@ -98,6 +98,13 @@ function GetMsBuildPath([switch] $Use32BitMsBuild)
 	return $msBuildPath
 }
 
+function GetDotnet()
+{
+	## 获取dotnet
+	$dotnet = get-childitem "C:\Program Files\dotnet\" dotnet.exe -recurse | Select-Object -first 1 | select -expand FullName
+	return $dotnet
+}
+
 function GetVisualStudioToolsVersion
 {
     ## vs版本列表
@@ -130,24 +137,23 @@ function GetVisualStudioToolsVersion
 	return $vsToolsVersion
 }
 
-function RestorePackages()
+function RestorePackages(
+	[parameter(Mandatory=$false)]
+    [switch] $IsCore)
 {
 	$slnFile = Get-ChildItem -Include *.sln -recurse | Select-Object -First 1
-    if(!$slnFIle) { throw "Did not find the .sln file"; exit 1}
     Write-Host "Sln Path: $slnFile `n"
+	if(!$slnFIle) { throw "Did not find the .sln file"; exit 1}
 	
 	Write-Host "Start Restoring Nuget Packages ...`n"
-	
-	$paketFile = Get-ChildItem -Include "paket.dependencies" -recurse | Select-Object -First 1
-	if($paketFile)
+	if($IsCore)
 	{
-		RestorePaketPackages($paketFile.DirectoryName)
+		RestoreCorePackages($slnFile)
 	}
-	else
-	{
+    else
+    {
 		RestoreNugetPackages($slnFIle)
 	}
-	
 	Write-Host "Restore Nuget Packages To Completed`n"
     return $slnFile
 }
@@ -164,20 +170,13 @@ function RestoreNugetPackages(
 	return
 }
 
-function RestorePaketPackages(
+function RestoreCorePackages(
 	[parameter(Mandatory=$false)]
-    [string]$File
-	)
+    [string]$File)
 {
-	$paketPath=$global:FilePath+"\Paket\paket.bootstrapper.exe"
-	if(!(Test-Path $paketPath -PathType Leaf)) { throw "Path $paketPath does not exist"; exit 1 }
-	
-	.$paketPath -s --self --max-file-age=120
-	cd $File
-	.$paketPath -s --max-file-age=120 --prefer-nuget --run "restore"
-	cd $global:CiProjectPath
+	$slnFile = GetDotnet()
+	.$slnFile restore $File
 }
-
 
 function InvokeMsBuild(
     [Parameter(Position=0,Mandatory = $true,ValueFromPipeline=$true,HelpMessage="The path to the file to build with MsBuild (e.g. a .sln or .csproj file).")]
@@ -221,7 +220,34 @@ function InvokeMsBuild(
     return
 }
 
-function InvokeMsBuildSln (
+function InvokeDotnetBuild(
+    [Parameter(Position=0,Mandatory = $true,ValueFromPipeline=$true,HelpMessage="The path to the file to build with MsBuild (e.g. a .sln or .csproj file).")]
+    [Alias("Path")]
+    [string]$ProjectPath,
+	
+	[parameter(Mandatory=$false)]
+    [string]$OutDir,
+	
+	[parameter(Mandatory=$false)]
+    [string]$Framework,
+	
+	[parameter(Mandatory=$false)]
+    [string]$Runtime,
+	
+	[parameter(Mandatory=$false)]
+    [switch] $UseDebug
+)
+{
+	$dotnet = GetDotnet()
+	
+	$configuration="Release"
+    if($UseDebug){$configuration="Debug"}
+	
+	$slnFile = RestorePackages -IsCore
+	.$dotnet build $slnFile --output $OutDir --configuration $configuration --framework $Framework --runtime $Runtime --verbosity m
+}
+
+function InvokeBuildSln (
     [parameter(Mandatory=$false)]
     [string]$OutDir,
 
@@ -229,16 +255,32 @@ function InvokeMsBuildSln (
     [string]$WebProjectOutputDir,
 
     [parameter(Mandatory=$false)]
-    [switch] $Use32BitMsBuild,
-
+    [switch] $Use32BitMsBuild
+	
+	[parameter(Mandatory=$false)]
+    [switch] $IsCore),
+	
+	[parameter(Mandatory=$false)]
+    [string]$Framework,
+	
+	[parameter(Mandatory=$false)]
+    [string]$Runtime,
+	
     [parameter(Mandatory=$false)]
-    [switch] $UseDebug
+    [switch] $UseDebug,
     )
 {   
     Try
     {
-        $projectPath = RestorePackages
-        InvokeMsBuild -Path $projectPath -OutDir $OutDir -WebProjectOutputDir $WebProjectOutputDir -Use32BitMsBuild:$Use32BitMsBuild -UseDebug:$UseDebug
+		if(IsCore)
+		{
+			InvokeDotnetBuild -Path $projectPath -Output $OutDir -Framework $Framework -Runtime $Runtime -UseDebug $UseDebug
+		}
+		else
+		{
+			$projectPath = RestorePackages
+			InvokeMsBuild -Path $projectPath -OutDir $OutDir -WebProjectOutputDir $WebProjectOutputDir -Use32BitMsBuild:$Use32BitMsBuild -UseDebug:$UseDebug
+		}
     }
     catch  
     {  
@@ -247,30 +289,32 @@ function InvokeMsBuildSln (
     }  
 }
 
-function InvokeMsBuildCsporj (
+function InvokeBuildCsporj (
     [parameter(Mandatory=$true)]
     [array]$TestProjectsName,
-
-    [parameter(Mandatory=$false)]
-    [switch] $Use32BitMsBuild,
-
-    [parameter(Mandatory=$false)]
-    [switch] $UseDebug
+	
+	[parameter(Mandatory=$false)]
+    [switch] $IsCore)
     )
 {
     Try
     {
-        $projectPath = RestoreNugetPackages
-
+		$projectPath=''
+		if($IsCore)){ $projectPath = RestoreCorePackages } else { $projectPath = RestoreNugetPackages }
+        
         $testFiles = @()
         foreach ($p in $TestProjectsName -Split ",") {$testFiles+=$p+".csproj"}
-
         $test_projects = Get-ChildItem -Include $testFiles -recurse
 
         foreach ($p in $test_projects) 
         {
-            $fileName="$global:CiProjectPath/BuildTests/"+$p.BaseName
-            InvokeMsBuild -Path $p -OutDir $fileName -Use32BitMsBuild:$Use32BitMsBuild -UseDebug:$UseDebug
+			if($IsCore)){
+				InvokeDotnetBuild -Path $p
+			}
+			else{
+				$fileName="$global:CiProjectPath/BuildTests/"+$p.BaseName
+				InvokeMsBuild -Path $p
+			}
         }
     }
     catch  
@@ -280,43 +324,75 @@ function InvokeMsBuildCsporj (
     }  
 }
 
-function TestDlls (
-    [parameter(Mandatory=$true)]
-    [array]$TestProjectsName
-    )
+function Tests(
+	[parameter(Mandatory=$true)]
+    [array]$TestProjectsName,
+	
+	[parameter(Mandatory=$false)]
+    [switch] $IsCore)
+)
 {
-    Try
+	Try
     {
-        $testFiles = @()
-        $paths=$TestProjectsName -Split ","
-        foreach ($p in $paths) {$testFiles+=Get-ChildItem -Include "$p.dll" -recurse}
-        if(!$testFiles){ throw "Did not find the need to test the files `n"; exit 1}
-        Write-Host "The files to be tested are: `n"
-        [string]::Join("`n", $testFiles)
-
-        Write-Host "Start Tests ...`n"
-        $test = ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$global:FilePath\\xUnitRunner\\xunit.console.exe" /TargetArguments="$testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
+		$testFiles = @()
+		$paths=$TestProjectsName -Split ","
+		if($IsCore){ 
+			foreach ($p in $paths) { $testFiles+=Get-ChildItem -Include "$p.csproj" -recurse } 
+		}else{
+			foreach ($p in $paths) { $testFiles+=Get-ChildItem -Include "$p.dll" -recurse }
+		}
+		if(!$testFiles){ throw "Did not find the need to test the files `n"; exit 1 }
+		Write-Host "The files to be tested are: `n"
+		[string]::Join("`n", $testFiles)
+		
+		Write-Host "Start Tests ...`n"
+		$test=''
+		if($IsCore){ 
+			$dotnet = GetDotnet()
+			$test = ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$dotnet" /TargetArguments="test $testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
+		}else{
+			$test = ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$global:FilePath\\xUnitRunner\\xunit.console.exe" /TargetArguments="$testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
+		}
 		Write-Output $test
 		if($test[-5].Contains("Analysed application exited with code")){ exit 1 }
-        Write-Host "Tests To Completed`n"
+		Write-Host "Tests To Completed`n"
 
-        $CoveragePercent = (Get-Content Coverage.json -TotalCount 6)[-1]
-        Write-Host $CoveragePercent
-        return
-    }
+		$CoveragePercent = (Get-Content Coverage.json -TotalCount 6)[-1]
+		Write-Host $CoveragePercent
+		return
+	}
     catch  
     {  
         throw $_.Exception
 	    exit 1
-    }  
+    } 
 }
 
-function BuildUnpack ()
+function BuildUnpack (
+	[parameter(Mandatory=$false)]
+    [switch] $IsCore)),
+	
+	[parameter(Mandatory=$false)]
+    [string]$Framework,
+	
+	[parameter(Mandatory=$false)]
+    [string]$Runtime,
+	
+	[parameter(Mandatory=$false)]
+    [switch] $SelfContained)
 {
     Try
     {
-        InvokeMsBuildSln "$global:CiProjectPath/Deploy/bin" "$global:CiProjectPath/Deploy"
-
+		if($IsCore){
+			$dotnet = GetDotnet()
+			$projectPath = RestorePackages -IsCore
+			if(SelfContained) { $parameter=' --self-contained'}
+			.$dotnet publish $projectPath --output $global:CiProjectPath/Deploy --framework $Framework --runtime $Runtime --configuration Release --verbosity m
+		}
+		else{
+			InvokeBuildSln "$global:CiProjectPath/Deploy/bin" "$global:CiProjectPath/Deploy"
+		}
+        
         Write-Host "Start Unpack ...`n"
         cd .\Deploy\
         if (-not (test-path "$env:ProgramFiles\7-Zip\7z.exe")) {throw "$env:ProgramFiles\7-Zip\7z.exe needed"; exit 1} 
@@ -474,9 +550,9 @@ function Deploy ([string]$IP,[string]$SiteName)
     }  
 }
 
-Export-ModuleMember -Function InvokeMsBuildSln
-Export-ModuleMember -Function InvokeMsBuildCsporj
-Export-ModuleMember -Function TestDlls
+Export-ModuleMember -Function InvokeBuildSln
+Export-ModuleMember -Function InvokeBuildCsporj
+Export-ModuleMember -Function Tests
 Export-ModuleMember -Function BuildUnpack
 Export-ModuleMember -Function UploadFile
 Export-ModuleMember -Function Deploy
