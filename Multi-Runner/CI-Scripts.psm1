@@ -12,17 +12,17 @@ function GetServers()
 		'192.168.3.20'=@{
 			UserName='a\Administrator';
 			Password='5!@~g^m@KBCn,5,L';
-			Path = 'C:\Packages\'+$global:ProjectName;
+			Path = 'C:\WebDeployPackages\'+$global:ProjectName;
 		};
 		'192.168.3.21'=@{
 			UserName='a\Administrator';
 			Password='5!@~g^m@KBCn,5,L';
-			Path = 'C:\Packages\'+$global:ProjectName;
+			Path = 'C:\WebDeployPackages\'+$global:ProjectName;
 		};
 		'192.168.3.80'=@{
 			UserName='a\Administrator';
 			Password='6*mDqFWE6An)3}ED';
-			Path = 'D:\Packages\'+$global:ProjectName;
+			Path = 'D:\WebDeployPackages\'+$global:ProjectName;
 		};
 	};
     return $servers
@@ -37,7 +37,8 @@ function GetServerSession([string]$IP)
 	    {
 		    ## 输入用户凭据
 		    $defaultCredential = New-Object Management.Automation.PSCredential $servers[$IP].UserName, (ConvertTo-SecureString $servers[$IP].Password -AsPlainText -Force) -ErrorAction Stop
-		    ## 新建远程会话
+		    Set-Item WSMan:\localhost\Client\TrustedHosts -value $IP -Force
+			## 新建远程会话
 		    return @{ Path= $servers[$IP].Path;Session = (New-PSSession -ComputerName $IP -Credential $defaultCredential -ErrorAction Stop) }
 	    }
 	    else
@@ -359,8 +360,10 @@ function Tests(
 		$test=''
 		if($IsCore){ 
 			$dotnet = GetDotnet
+			Write-Host ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$dotnet" /TargetArguments="test $testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
 			$test = ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$dotnet" /TargetArguments="test $testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
 		}else{
+			Write-Host ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$global:FilePath\\xUnitRunner\\xunit.console.exe" /TargetArguments="$testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
 			$test = ."$global:FilePath\\dotCover\\dotCover.exe" analyse /TargetExecutable="$global:FilePath\\xUnitRunner\\xunit.console.exe" /TargetArguments="$testFiles" /Output="Coverage.json" /ReportType="JSON" /Filters="$global:CoverFilters"
 		}
 		Write-Output $test
@@ -518,7 +521,6 @@ function UploadFile ([array]$RemoteIPList)
 	    {
 		    $session = GetServerSession $n
             Enable-PsRemoting
-            Set-Item WSMan:\localhost\client\trustedhosts -value $n -Force
 		    Write-Host "Start Uploading To $n ...`n"
 		    $result = Invoke-Command $send -ArgumentList "$global:CommitId.7z",$session.Path,$session.Session
             Write-Host "Uploaded To $n`n"
@@ -531,7 +533,7 @@ function UploadFile ([array]$RemoteIPList)
     }  
 }
 
-function Deploy ([string]$IP,[string]$SiteName)
+function Deploy ([Parameter(Mandatory = $true)][string]$IP,[Parameter(Mandatory = $true)][string]$SiteName)
 {
     Try
     {
@@ -546,21 +548,28 @@ function Deploy ([string]$IP,[string]$SiteName)
 		
 		    ## 远程web名称
 		    [Parameter(Mandatory = $true)]
-		    [string]$SiteName
+		    [string]$SiteName,
+			
+			## 应用程序exe
+			[string]$Console
 		    )
-
+			
 		    Stop-Website $SiteName -ErrorAction Stop
 		    Stop-WebAppPool $SiteName -ErrorAction Stop
 		    $IIS_Path="IIS:\Sites\"+$SiteName
 		    $WEB_PATH = Get-WebFilePath $IIS_Path
-		    $WEB_PATH = "-o"+$WEB_PATH
-		    ."$env:ProgramFiles\7-Zip\7z.exe" x $File $WEB_PATH -y
+		    $WEB_PATH_WITH_7Z = "-o"+$WEB_PATH
+		    ."$env:ProgramFiles\7-Zip\7z.exe" x $File $WEB_PATH_WITH_7Z -y
+			if(-not [String]::IsNullOrEmpty($Console)){ 
+			cd $WEB_PATH
+			dotnet $Console -s 
+			}
 		    Start-Website $SiteName -ErrorAction Stop
 		    Start-WebAppPool $SiteName -ErrorAction Stop
 	    }
         
         Write-Host "Start Deploy To $IP ...`n"
-	    $result = Invoke-Command -Session $session.Session $deploy -ArgumentList ($session.Path+"\$global:CommitId.7z"),$SiteName
+	    $result = Invoke-Command -Session $session.Session $deploy -ArgumentList ($session.Path+"\$global:CommitId.7z"),$SiteName,$global:Console
         Write-Host "Deployed To $IP`n"
     }
     catch  

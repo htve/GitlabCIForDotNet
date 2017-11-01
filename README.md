@@ -52,3 +52,4 @@ Gitlab CI For .Net Web的CI脚本 . 原则上适用于任何.Net开发 , 但可�
 
 ##后期配置
 1. 在**README.md**中引入**构建徽章**与**覆盖率徽章**
+2. 如果使用PowerShell部署,请在构建服务器和所有部署服务器执行**Enable-PSRemoting -Force**
