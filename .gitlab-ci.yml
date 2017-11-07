@@ -17,59 +17,64 @@ before_script:
   ##-----------------------------可变更参数----------------------------------
   ## 文件目录
   - $global:FilePath="C:\\Multi-Runner1"
-  ## 进行单元测试及覆盖率的项目名称,多个文件用逗号(,)隔开,支持*通配符
-  - $global:TestProjectNames="Ninetowns.NewsCenter.Tests"
   ## 覆盖率过滤器
-  - $global:CoverFilters="-:Abp*"
+  - $global:CoverFilters="-:Abp*;-:Ninetowns.IDecl.Tests;-:Castle.*"
+  ## 部署时执行的控制台程序(必须在web主目录下)
+  - $global:Console="Ninetowns.IDecl.Migrator.dll"
   ##-------------------------------------------------------------------------
   - $global:CiProjectPath=$CI_PROJECT_DIR
   - $global:CommitId=$CI_BUILD_REF
   - $global:ProjectName=$CI_PROJECT_NAME
   - Import-Module -Name "$global:FilePath\\CI-Scripts.psm1"
 
+## 构建模板
+.job_build_template: &job_build_definition
+  stage: build
+  script: 
+  - $JOB_NAME= -Split $CI_BUILD_NAME -replace "'",""
+  - InvokeBuild -ProjectName:$JOB_NAME[1] -IsCore:($JOB_NAME[2] -eq 'IsCore')
 
 ## 构建主项目
-Build Master Project:
-  stage: build
-  script:
-  - InvokeBuildSln #非core
-  #- InvokeBuildSln -IsCore #core
+Build '' IsCore:
+  <<: *job_build_definition
   
 ## 构建测试项目
-Build Test Project:
-  stage: build
-  script:
-  - InvokeMsBuildCsporj -TestProjectsName $global:TestProjectNames
+Build 'Ninetowns.IDecl.Tests' IsCore:
+  <<: *job_build_definition
   artifacts: 
     name: "$CI_PROJECT_NAME/Test"
     expire_in: 1 day
     paths:
-    - "BuildTests"
-    
-## 测试项目
-Test:
+    - "BuildArtifacts"
+
+## 测试模板
+.job_test_template: &job_test_definition
   stage: test
-  variables:
-    OUT_PATH: ""
-    WEB_OUT_PATH: ""
   script:
-  - Tests $global:TestProjectNames
-  #- Tests $global:TestProjectNames -IsCore #Core 
+  - $JOB_NAME= -Split $CI_BUILD_NAME -replace "'",""
+  - Test -TestProjectName:$JOB_NAME[1] -IsCore:($JOB_NAME[2] -eq 'IsCore')
   coverage: '/"CoveragePercent": (\d+),/'
+  variables:
+    GIT_STRATEGY: none
+  
+## 测试项目
+Test 'Ninetowns.IDecl.Tests' IsCore:
+  <<: *job_test_definition
   dependencies:
-  - Build Test Project
+  - Build 'Ninetowns.IDecl.Tests' IsCore
 
 ## 构建部署包
 Build Unpack:
   stage: build_unpack
   script: 
-  - BuildUnpack
+  - BuildUnpack -ProjectName:'Ninetowns.IDecl.Web.Host' -IsCore
   artifacts: 
     name: "$CI_PROJECT_NAME"
     expire_in: 1 week
     paths:
     - "$CI_BUILD_REF.7z"
-  only:
+  only: 
+  - pre-production
   - production
 
 ## 上传服务器模板
@@ -79,13 +84,15 @@ Build Unpack:
   - $JOB_NAME= -Split $CI_BUILD_NAME
   - $ip=$JOB_NAME[1]
   - UploadFile "$ip"
-  only: 
-  - production
   dependencies:
   - Build Unpack
 
-## 上传到192.168.3.80
-Upload 192.168.3.80: *job_upload_definition
+## 上传到测试环境
+Upload 192.168.3.80: 
+  <<: *job_upload_definition
+  only: 
+  - pre-production
+
 
 ## 部署模板
 .job_deploy_template: &job_deploy_definition
@@ -96,12 +103,10 @@ Upload 192.168.3.80: *job_upload_definition
   - $site=$JOB_NAME[2]
   - Deploy "$ip" "$site"
 
-## 部署192.168.3.80中的Site站点
-Deploy 192.168.3.80 Site: 
+## 部署测试环境
+Deploy 192.168.3.80 WebiDecl: 
   <<: *job_deploy_definition
   environment:
     name: 192.168.3.80
   only: 
-  - production
-  #如果想手动部署,请取消注释以下内容
-  #when: manual
+  - pre-production
