@@ -94,14 +94,16 @@ Upload 192.168.3.80:
   - pre-production
 
 
-## 部署模板
+## 远程部署模板
 .job_deploy_template: &job_deploy_definition
   stage: deploy
   script: 
   - $JOB_NAME= -Split $CI_BUILD_NAME
   - $ip=$JOB_NAME[1]
   - $site=$JOB_NAME[2]
-  - Deploy "$ip" "$site"
+  - DeployToRemote "$ip" "$site"
+  variables:
+    GIT_STRATEGY: none
 
 ## 部署测试环境
 Deploy 192.168.3.80 WebiDecl: 
@@ -110,3 +112,24 @@ Deploy 192.168.3.80 WebiDecl:
     name: 192.168.3.80
   only: 
   - pre-production
+  
+## 本地部署模板
+.job_deploy_template: &job_deploy_definition
+  stage: deploy
+  script: 
+  - $JOB_NAME= -Split $CI_BUILD_NAME
+  - $site=$JOB_NAME[1]
+  - DeployToLocal -SiteName:"$site"
+  variables:
+    GIT_STRATEGY: none
+    
+## 本地部署测试环境
+Deploy Test: 
+  <<: *job_deploy_definition
+  tags:
+    - win
+    - test
+  environment:
+    name: test
+  only: 
+  - test
