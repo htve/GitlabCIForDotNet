@@ -238,7 +238,7 @@ function InvokeDotnetBuild(
     $runtime=''
     if($Runtime){ $runtime="--runtime:$Runtime"}
 
-    dotnet build $configuration $framework $runtime --no-restore --verbosity m $ProjectPath
+    dotnet build $configuration $framework $runtime --no-restore --output $global:CiProjectPath/BuildArtifacts --verbosity m $ProjectPath
 }
 
 function Test(
@@ -455,7 +455,7 @@ function DeployToLocal (
 {
 	Try
     {
-		if([String]::IsNullOrEmpty($File)){$File='$CI_BUILD_REF.7z'}
+		if([String]::IsNullOrEmpty($File)){$File=$global:CommitId+'.7z'}
 		Stop-Website $SiteName -ErrorAction Stop
 		Stop-WebAppPool $SiteName -ErrorAction Stop
 		$IIS_Path="IIS:\Sites\"+$SiteName
