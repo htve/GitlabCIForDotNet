@@ -7,6 +7,9 @@
 ## MSBuild 的默认安装路径
 if(!$MsbuildPath) { $MsbuildPath = 'C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\amd64\MSBuild.exe' }
 
+## 解决中文乱码
+chcp 65001
+
 function GetServers()
 {
     $servers = @{
