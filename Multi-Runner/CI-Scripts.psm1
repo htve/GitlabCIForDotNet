@@ -459,19 +459,27 @@ function DeployToLocal (
 	Try
     {
 		if([String]::IsNullOrEmpty($File)){$File=$global:CommitId+'.7z'}
-		Stop-Website $SiteName -ErrorAction Stop
-		Stop-WebAppPool $SiteName -ErrorAction Stop
+		if((Get-WebAppPoolState $SiteName).Value -ne 'Stopped') {
+			Stop-WebAppPool -Name $SiteName
+			while((Get-WebAppPoolState $SiteName).Value -ne 'Stopped') {
+				Start-Sleep -s 1
+			}
+		}
 		$IIS_Path="IIS:\Sites\"+$SiteName
 		$WEB_PATH = Get-WebFilePath $IIS_Path
 		$WEB_PATH_WITH_7Z = "-o"+$WEB_PATH
 		."$env:ProgramFiles\7-Zip\7z.exe" x $File $WEB_PATH_WITH_7Z -y
 		if(-not [String]::IsNullOrEmpty($Console)){ 
-		cd $WEB_PATH
-		dotnet $Console -s 
+			cd $WEB_PATH
+			.".\\$Console"
 		}
-		Start-Website $SiteName -ErrorAction Stop
-		Start-WebAppPool $SiteName -ErrorAction Stop
+		if((Get-WebAppPoolState $SiteName).Value -ne 'Started') {
+			Start-WebAppPool -Name $SiteName
+			while((Get-WebAppPoolState $SiteName).Value -ne 'Started') {
+				Start-Sleep -s 1
+			}
 		}
+	}
     catch  
     {  
         throw $_.Exception
